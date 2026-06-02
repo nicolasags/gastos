@@ -457,40 +457,52 @@ let medio='ef',filtro='todos',vY,vM;
    ONEDRIVE — Microsoft Graph + MSAL.js
    Client ID: dd57dcba-a859-489e-b2ef-f89bc579c46f
 ══════════════════════════════════════════════ */
-const OD_CLIENT_ID = 'dd57dcba-a859-489e-b2ef-f89bc579c46f';
-const OD_SCOPES    = ['Files.ReadWrite','User.Read'];
-const OD_FILENAME  = 'gastos-familiares.json';
-const OD_PATH      = `/me/drive/special/approot:/${OD_FILENAME}:/`;
+const OD_CLIENT_ID  = 'dd57dcba-a859-489e-b2ef-f89bc579c46f';
+const OD_SCOPES     = ['Files.ReadWrite','User.Read'];
+const OD_FILENAME   = 'gastos-familiares.json';
+const OD_PATH       = `/me/drive/special/approot:/${OD_FILENAME}:/`;
+const OD_REDIRECT   = 'https://nicolasags.github.io/gastos/';
 let msalApp  = null;
 let odToken  = null;
 let odSaving = false;
 
 function odInit(){
-  if(!window.msal) return;
-  msalApp = new msal.PublicClientApplication({
-    auth:{
-      clientId:    OD_CLIENT_ID,
-      authority:   'https://login.microsoftonline.com/common',
-      redirectUri: window.location.href.split('?')[0].split('#')[0]
-    },
-    cache:{ cacheLocation:'sessionStorage', storeAuthStateInCookie:false }
-  });
-  msalApp.initialize().then(()=>{
-    return msalApp.handleRedirectPromise();
-  }).then(resp=>{
-    if(resp && resp.account){
-      odToken = resp.accessToken;
-      odSetUI(true, resp.account.username);
-      odLoad();
-      return;
-    }
-    const accounts = msalApp.getAllAccounts();
-    if(accounts.length){
-      odGetToken(accounts[0]).then(tok=>{
-        if(tok){ odSetUI(true, accounts[0].username); odLoad(); }
-      });
-    }
-  }).catch(e=>console.error('MSAL init',e));
+  if(!window.msal){ odSetStatus('⚠️ MSAL no disponible','var(--rd)'); return; }
+  try{
+    msalApp = new msal.PublicClientApplication({
+      auth:{
+        clientId:    OD_CLIENT_ID,
+        authority:   'https://login.microsoftonline.com/common',
+        redirectUri: OD_REDIRECT
+      },
+      cache:{ cacheLocation:'localStorage', storeAuthStateInCookie:true }
+    });
+    msalApp.initialize().then(()=>{
+      return msalApp.handleRedirectPromise();
+    }).then(resp=>{
+      if(resp && resp.account){
+        odToken = resp.accessToken;
+        odSetUI(true, resp.account.username);
+        odLoad();
+        return;
+      }
+      const accounts = msalApp.getAllAccounts();
+      if(accounts.length){
+        odGetToken(accounts[0]).then(tok=>{
+          if(tok){ odSetUI(true, accounts[0].username); odLoad(); }
+          else { odSetUI(false); }
+        });
+      } else {
+        odSetUI(false);
+      }
+    }).catch(e=>{
+      console.error('MSAL init error:', e);
+      odSetStatus('⚠️ Error al iniciar MSAL','var(--rd)');
+    });
+  }catch(e){
+    console.error('MSAL constructor error:', e);
+    odSetStatus('⚠️ Error MSAL','var(--rd)');
+  }
 }
 
 async function odGetToken(account){
