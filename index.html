@@ -339,11 +339,18 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);font-si
               <div class="fld"><label>Cuotas</label>
                 <select id="f-cuotas" onchange="calcPrev()">
                   <option value="1">1 — pago único</option><option value="2">2 cuotas</option>
-                  <option value="3">3 cuotas</option><option value="6">6 cuotas</option>
+                  <option value="3">3 cuotas</option><option value="4">4 cuotas</option>
+                  <option value="6">6 cuotas</option>
                   <option value="9">9 cuotas</option><option value="12">12 cuotas</option>
                   <option value="18">18 cuotas</option><option value="24">24 cuotas</option>
                 </select>
               </div>
+            </div>
+            <div class="fld">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                <input type="checkbox" id="f-bonif" onchange="toggleBonif()" style="width:auto;accent-color:var(--gn)">
+                <span>Es una bonificación / reintegro (importe negativo)</span>
+              </label>
             </div>
             <div class="crprev" id="crprev"></div>
             <div class="cw" id="cw"></div>
@@ -625,7 +632,11 @@ function sanitize(){
 function initV(){const n=new Date();vY=n.getFullYear();vM=n.getMonth();}
 function chMes(d){vM+=d;if(vM<0){vM=11;vY--;}if(vM>11){vM=0;vY++;}render();}
 function pd(s){return new Date(s+'T12:00:00');}
-function fmt(n){return '$'+Number(n).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function fmt(n){
+  const abs=Math.abs(Number(n));
+  const str='$'+abs.toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  return n<0?'-'+str:str;
+}
 function ingKey(m,y){return y+'-'+m;}
 function set(id,h){const e=document.getElementById(id);if(e)e.innerHTML=h;}
 
@@ -903,23 +914,35 @@ function calcPrev(){
   }else cw.className='cw';
 }
 
+// BONIFICACIÓN — cambia label del monto y permite negativo
+function toggleBonif(){
+  const isBonif = document.getElementById('f-bonif').checked;
+  const montoLbl = document.querySelector('label[for="f-monto"]') ||
+    document.getElementById('f-monto').closest('.fld').querySelector('label');
+  if(montoLbl) montoLbl.textContent = isBonif ? 'Importe bonificación ($)' : 'Monto total ($)';
+  document.getElementById('f-monto').placeholder = isBonif ? '0.00 (se guardará negativo)' : '0.00';
+  calcPrev();
+}
+
 // AGREGAR GASTO
 function addGasto(){
   const desc=document.getElementById('f-desc').value.trim();
-  const monto=parseFloat(document.getElementById('f-monto').value);
+  let monto=parseFloat(document.getElementById('f-monto').value);
   const fecha=document.getElementById('f-fecha').value;
   const cat=document.getElementById('f-cat').value;
   const nota=document.getElementById('f-nota').value.trim();
+  const isBonif = medio==='cr' && document.getElementById('f-bonif').checked;
   if(!desc){toast('⚠️ Ingresá una descripción');return;}
   if(!monto||monto<=0){toast('⚠️ Ingresá un monto');return;}
   if(!fecha){toast('⚠️ Seleccioná una fecha');return;}
+  if(isBonif) monto = -Math.abs(monto);
   if(medio==='cr'){
     const N=parseInt(document.getElementById('f-cuotas').value)||1;
     const tid=document.getElementById('f-tj').value;
     const t=S.tarjetas.find(x=>x.id===tid);
     if(!t){toast('⚠️ Seleccioná una tarjeta');return;}
     S.gastos.unshift(...crearCuotas({desc,monto,fecha,cat,nota},t,N));
-    toast(N===1?'✓ Gasto registrado':'✓ Compra en '+N+' cuotas registrada');
+    toast(isBonif?'✓ Bonificación registrada':N===1?'✓ Gasto registrado':'✓ Compra en '+N+' cuotas registrada');
   }else{
     const d=pd(fecha);
     S.gastos.unshift({id:'g'+Date.now(),desc,monto,fecha,cat,nota,medio,mesPago:d.getMonth(),anioPago:d.getFullYear()});
@@ -927,6 +950,7 @@ function addGasto(){
   }
   save();
   document.getElementById('f-desc').value='';document.getElementById('f-monto').value='';document.getElementById('f-nota').value='';
+  document.getElementById('f-bonif').checked=false; toggleBonif();
   document.getElementById('crprev').style.display='none';document.getElementById('cw').className='cw';
   render();
 }
@@ -1016,9 +1040,9 @@ function renderLista(){
       <div class="edot d${g.medio}"></div>
       <div class="ebo"><div class="edsc">${ico} ${g.desc}</div>
         <div class="emeta">${catN} · ${pd(g.fecha).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'2-digit'})}${esCuota?` · Cuota ${g.nCuota}/${g.totalCuotas}`:''}${g.tarjetaNombre?' · '+g.tarjetaNombre:''}${g.nota?' · '+g.nota:''}</div></div>
-      <div class="eri"><div class="eamt">${fmt(g.monto)}</div>
+      <div class="eri"><div class="eamt" style="${g.monto<0?'color:var(--gn)':''}">${fmt(g.monto)}</div>
         ${esCuota?`<div class="etot">de ${fmt(g.montoTotal)}</div>`:''}
-        <div style="display:flex;gap:3px;justify-content:flex-end;flex-wrap:wrap;margin-top:2px"><span class="ebdg b${g.medio}">${ml[g.medio]}</span>${vtag}</div></div>
+        <div style="display:flex;gap:3px;justify-content:flex-end;flex-wrap:wrap;margin-top:2px"><span class="ebdg b${g.medio}">${ml[g.medio]}</span>${g.monto<0?'<span class="ebdg" style="background:var(--gn-l);color:var(--gn)">Bonif.</span>':''}${vtag}</div></div>
       <button class="ebtn" onclick="abrirEditGasto('${g.id}')">✏️</button>
       <button class="dbtn" onclick="delGasto('${g.id}')">🗑</button></div>`;
   }).join('');
