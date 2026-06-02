@@ -368,6 +368,19 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);font-si
           <span id="rperiod" style="font-size:12px;color:var(--tx2)"></span>
         </div>
         <div class="cb">
+          <!-- BUSCADOR GLOBAL -->
+          <div style="position:relative;margin-bottom:10px">
+            <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:14px;pointer-events:none">🔍</span>
+            <input type="text" id="search-input" placeholder="Buscar en todos los movimientos..." oninput="refreshTab()"
+              style="width:100%;padding:8px 10px 8px 32px;border:1px solid var(--b2);border-radius:var(--rs);background:var(--bg);color:var(--tx);font-size:13px;font-family:inherit;outline:none;transition:.13s">
+          </div>
+          <!-- FILTROS GLOBALES -->
+          <div class="chips" id="filter-chips">
+            <button class="chip on" onclick="setF('todos',this)">Todos</button>
+            <button class="chip" onclick="setF('ef',this)">💵 Efectivo</button>
+            <button class="chip" onclick="setF('db',this)">💳 Débito</button>
+            <button class="chip" onclick="setF('cr',this)">🔖 Crédito</button>
+          </div>
           <div class="tabs">
             <button class="tab on" onclick="showTab('lista',this)">Lista</button>
             <button class="tab" onclick="showTab('cuotas',this)">Tabla cuotas</button>
@@ -376,19 +389,6 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);font-si
             <button class="tab" onclick="showTab('hist',this)">Historial</button>
           </div>
           <div class="tp on" id="tp-lista">
-            <!-- BUSCADOR -->
-            <div style="position:relative;margin-bottom:10px">
-              <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:14px;pointer-events:none">🔍</span>
-              <input type="text" id="search-input" placeholder="Buscar por descripción, categoría, tarjeta, nota..." oninput="renderLista()"
-                style="width:100%;padding:8px 10px 8px 32px;border:1px solid var(--b2);border-radius:var(--rs);background:var(--bg);color:var(--tx);font-size:13px;font-family:inherit;outline:none;transition:.13s">
-            </div>
-            <!-- FILTROS -->
-            <div class="chips" id="filter-chips">
-              <button class="chip on" onclick="setF('todos',this)">Todos</button>
-              <button class="chip" onclick="setF('ef',this)">💵 Efectivo</button>
-              <button class="chip" onclick="setF('db',this)">💳 Débito</button>
-              <button class="chip" onclick="setF('cr',this)">🔖 Crédito</button>
-            </div>
             <div class="elist" id="elist"></div>
           </div>
           <div class="tp" id="tp-cuotas"><div id="cuotas-c"></div></div>
@@ -986,31 +986,68 @@ function delGasto(id){
 function buildFilterChips(){
   const el=document.getElementById('filter-chips');
   if(!el) return;
-  // Chips base
-  let html=`
-    <button class="chip${filtro==='todos'?' on':''}" onclick="setF('todos',this)">Todos</button>
-    <button class="chip${filtro==='ef'?' on':''}" onclick="setF('ef',this)">💵 Efectivo</button>
-    <button class="chip${filtro==='db'?' on':''}" onclick="setF('db',this)">💳 Débito</button>
-    <button class="chip${filtro==='cr'?' on':''}" onclick="setF('cr',this)">🔖 Crédito</button>`;
-  // Un chip por cada tarjeta
-  S.tarjetas.forEach(t=>{
-    const active=filtro===t.id?' on':'';
-    html+=`<button class="chip${active}" onclick="setF('${t.id}',this)">🔖 ${t.nombre}</button>`;
-  });
-  el.innerHTML=html;
+  const chips = [
+    {f:'todos', lbl:'Todos'},
+    {f:'ef',    lbl:'💵 Efectivo'},
+    {f:'db',    lbl:'💳 Débito'},
+    {f:'cr',    lbl:'🔖 Crédito'},
+    ...S.tarjetas.map(t=>({f:t.id, lbl:'🔖 '+t.nombre}))
+  ];
+  el.innerHTML = chips.map(ch=>
+    `<button class="chip${filtro===ch.f?' on':''}" data-f="${ch.f}">${ch.lbl}</button>`
+  ).join('');
+  el.querySelectorAll('button').forEach(btn=>btn.addEventListener('click',function(){setF(this.dataset.f,this);}));
 }
 
 function setF(f,el){
   filtro=f;
   document.querySelectorAll('#filter-chips .chip').forEach(c=>c.className='chip');
   if(el) el.className='chip on';
-  renderLista();
+  refreshTab();
+}
+
+// Refresca la pestaña activa aplicando búsqueda y filtro actuales
+function refreshTab(){
+  const at=document.querySelector('.tp.on');
+  if(!at) return;
+  const id=at.id.replace('tp-','');
+  if(id==='lista')     renderLista();
+  else if(id==='cuotas')    renderTablaCuotas();
+  else if(id==='cat')       renderCat();
+  else if(id==='tarjtab')   renderPorTarj();
+  else if(id==='hist')      renderHist();
+}
+
+// Devuelve los gastos filtrados por medio/tarjeta y búsqueda, para el mes o globales
+function filteredGastos(global){
+  const searchEl=document.getElementById('search-input');
+  const query=(searchEl?searchEl.value.trim().toLowerCase():'');
+  let items = (global||query) ? S.gastos.slice() : gastosMes(vM,vY);
+  if(!global && !query) items = gastosMes(vM,vY);
+
+  // Filtro medio/tarjeta
+  if(filtro==='ef')       items=items.filter(g=>g.medio==='ef');
+  else if(filtro==='db')  items=items.filter(g=>g.medio==='db');
+  else if(filtro==='cr')  items=items.filter(g=>g.medio==='cr');
+  else if(filtro!=='todos') items=items.filter(g=>g.tarjetaId===filtro);
+
+  // Búsqueda texto libre
+  if(query){
+    items=items.filter(g=>{
+      const txt=[g.desc||'',g.cat||'',g.tarjetaNombre||'',g.nota||'',
+        fmt(g.monto),g.fecha||'',
+        g.medio==='ef'?'efectivo':g.medio==='db'?'debito':'credito'
+      ].join(' ').toLowerCase();
+      return txt.includes(query);
+    });
+  }
+  return {items, query};
 }
 function showTab(id,btn){
   document.querySelectorAll('.tp').forEach(p=>p.className='tp');
   document.querySelectorAll('.tab').forEach(b=>b.className='tab');
   document.getElementById('tp-'+id).className='tp on';btn.className='tab on';
-  if(id==='cat')renderCat();if(id==='tarjtab')renderPorTarj();if(id==='hist')renderHist();if(id==='cuotas')renderTablaCuotas();
+  refreshTab();
 }
 
 // RENDER
@@ -1019,7 +1056,7 @@ function render(){
   document.getElementById('mlbl').textContent=lbl;document.getElementById('rperiod').textContent=lbl;
   renderBalance();renderIngresos();renderAhorros();
   buildFilterChips();
-  renderLista();renderTarjetas();
+  refreshTab();renderTarjetas();
   const at=document.querySelector('.tp.on');
   if(at){const id=at.id.replace('tp-','');if(id==='cat')renderCat();if(id==='tarjtab')renderPorTarj();if(id==='hist')renderHist();if(id==='cuotas')renderTablaCuotas();}
 }
@@ -1052,39 +1089,19 @@ function renderBalance(){
 // LISTA
 function renderLista(){
   const el=document.getElementById('elist');
-  const searchEl=document.getElementById('search-input');
-  const query=(searchEl?searchEl.value.trim().toLowerCase():'');
-
-  // Con búsqueda activa: busca en TODOS los meses. Sin búsqueda: solo mes actual.
-  let items = query ? S.gastos.slice() : gastosMes(vM,vY);
-
-  // Filtro por medio o tarjeta específica
-  if(filtro==='ef')      items=items.filter(g=>g.medio==='ef');
-  else if(filtro==='db') items=items.filter(g=>g.medio==='db');
-  else if(filtro==='cr') items=items.filter(g=>g.medio==='cr');
-  else if(filtro!=='todos') items=items.filter(g=>g.tarjetaId===filtro);
-
-  // Búsqueda de texto libre
-  if(query){
-    items=items.filter(g=>{
-      const txt=[g.desc||'',g.cat||'',g.tarjetaNombre||'',g.nota||'',
-        fmt(g.monto),g.fecha||'',
-        g.medio==='ef'?'efectivo':g.medio==='db'?'debito':'credito'
-      ].join(' ').toLowerCase();
-      return txt.includes(query);
-    });
-  }
+  const {items, query} = filteredGastos(false);
 
   if(!items.length){
     el.innerHTML='<div class="empty"><div class="eico">'+(query?'🔍':'📭')+'</div><div class="etxt">'+(query?'Sin resultados para &ldquo;'+query+'&rdquo;':'Sin gastos este mes')+'</div></div>';
     return;
   }
 
-  // Función para resaltar texto buscado
   function hl(txt){
     if(!query||!txt) return txt||'';
-    const re=new RegExp('('+query.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi');
-    return txt.replace(re,'<mark style="background:#FFF3CD;border-radius:2px;padding:0 1px">$1</mark>');
+    try{
+      const esc=query.split('').map(function(ch){return'\\.+*?[^${}()|'.indexOf(ch)>=0?'\\'+ch:ch;}).join('');
+      return txt.replace(new RegExp('('+esc+')','gi'),'<mark style="background:#FFF3CD;border-radius:2px">$1</mark>');
+    }catch(e){return txt;}
   }
 
   const ml={ef:'Efectivo',db:'Débito',cr:'Crédito'};
@@ -1128,8 +1145,9 @@ function renderLista(){
 // TABLA CUOTAS
 function renderTablaCuotas(){
   const el=document.getElementById('cuotas-c');
+  const {items:gastosFil, query} = filteredGastos(true);
   const grupos={};
-  S.gastos.filter(g=>g.grupoId).forEach(g=>{if(!grupos[g.grupoId])grupos[g.grupoId]=[];grupos[g.grupoId].push(g);});
+  gastosFil.filter(g=>g.grupoId).forEach(g=>{if(!grupos[g.grupoId])grupos[g.grupoId]=[];grupos[g.grupoId].push(g);});
   const compras=Object.values(grupos).map(arr=>arr.sort((a,b)=>a.nCuota-b.nCuota));
   if(!compras.length){el.innerHTML='<div class="empty"><div class="eico">📋</div><div class="etxt">Sin compras en cuotas</div></div>';return;}
   let minIdx=Infinity,maxIdx=-Infinity;
@@ -1159,7 +1177,8 @@ function renderTablaCuotas(){
 
 // CATEGORÍAS
 function renderCat(){
-  const items=gastosMes(vM,vY),by={};
+  const {items} = filteredGastos(false);
+  const by={};
   items.forEach(g=>{const c=g.cat?g.cat.split(' ').slice(1).join(' '):'Otro';by[c]=(by[c]||0)+g.monto;});
   const sorted=Object.entries(by).sort((a,b)=>b[1]-a[1]);
   const el=document.getElementById('cat-c');
@@ -1170,7 +1189,8 @@ function renderCat(){
 
 // POR TARJETA
 function renderPorTarj(){
-  const items=gastosMes(vM,vY).filter(g=>g.medio==='cr');
+  const {items:itemsBase} = filteredGastos(false);
+  const items=itemsBase.filter(g=>g.medio==='cr');
   const el=document.getElementById('tarjtab-c');
   if(!items.length){el.innerHTML='<div class="empty"><div class="eico">💳</div><div class="etxt">Sin gastos con tarjeta este mes</div></div>';return;}
   const by={};items.forEach(g=>{const k=g.tarjetaNombre||'Sin tarjeta';if(!by[k])by[k]=[];by[k].push(g);});
@@ -1180,12 +1200,13 @@ function renderPorTarj(){
       <div class="crow tot"><span>Total del mes</span><span>${fmt(tot)}</span></div></div>`;}).join('');
 }
 
-// HISTORIAL
+// HISTORIAL — sin límite de meses, con filtro y búsqueda aplicados
 function renderHist(){
   const el=document.getElementById('hist-c'),byM={};
-  S.gastos.forEach(g=>{const m=g.medio==='cr'?g.mesPago:pd(g.fecha).getMonth(),y=g.medio==='cr'?g.anioPago:pd(g.fecha).getFullYear();
+  const {items:gastosFil} = filteredGastos(true);
+  gastosFil.forEach(g=>{const m=g.medio==='cr'?g.mesPago:pd(g.fecha).getMonth(),y=g.medio==='cr'?g.anioPago:pd(g.fecha).getFullYear();
     const k=y+'-'+String(m).padStart(2,'0');if(!byM[k])byM[k]={ef:0,db:0,cr:0,n:0,m,y};byM[k][g.medio]+=g.monto;byM[k].n++;});
-  const keys=Object.keys(byM).sort().reverse().slice(0,18);
+  const keys=Object.keys(byM).sort().reverse();  // sin límite
   if(!keys.length){el.innerHTML='<div class="empty"><div class="eico">📈</div><div class="etxt">Sin datos</div></div>';return;}
   el.innerHTML=keys.map(k=>{const d=byM[k],egr=d.ef+d.db+d.cr,ik=ingKey(d.m,d.y);
     const ing=(S.ingresos[ik]||[]).reduce((a,i)=>a+i.monto,0),aho=(S.ahorros[ik]||[]).reduce((a,a2)=>a+a2.monto,0),sal=ing-egr-aho;
@@ -1203,13 +1224,34 @@ function renderTarjetas(){
     const pend=S.gastos.filter(g=>g.tarjetaId===t.id&&g.medio==='cr'&&(g.anioPago>hY||(g.anioPago===hY&&g.mesPago>=hM)));
     const totPend=pend.reduce((a,g)=>a+g.monto,0);
     const periodos=(t.periodos||[]).slice().sort((a,b)=>pf(a.cierreStr)-pf(b.cierreStr));
+    // Tope: mes actual + próximos 5 meses
     let topeHtml='';
     if(t.tope>0){
-      const pct=Math.min((totMes/t.tope)*100,100),cls=pct>=100?'tf-rd':pct>=80?'tf-wa':'tf-ok';
-      const alMsg=pct>=100?`🚨 Límite superado — ${fmt(totMes)} de ${fmt(t.tope)}`:pct>=80?`⚠️ Cerca del límite — ${pct.toFixed(0)}% de ${fmt(t.tope)}`:'';
-      topeHtml=`<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--tx3);margin-top:6px"><span>Tope: ${fmt(t.tope)}</span><span>${pct.toFixed(0)}%</span></div>
-        <div class="tope-bar"><div class="tope-fill ${cls}" style="width:${pct.toFixed(1)}%"></div></div>
-        ${alMsg?`<div class="tope-alert ${pct>=100?'ta-rd':'ta-wa'}" style="display:block">${alMsg}</div>`:''}`;
+      let mesesHtml='';
+      for(let off=0;off<=5;off++){
+        let mm=vM+off,yy=vY;
+        while(mm>11){mm-=12;yy++;}
+        const gastosMes_t=S.gastos.filter(g=>g.tarjetaId===t.id&&g.medio==='cr'&&g.anioPago===yy&&g.mesPago===mm);
+        const totM=gastosMes_t.reduce((a,g)=>a+g.monto,0);
+        const pct=Math.min((totM/t.tope)*100,100);
+        const cls=pct>=100?'tf-rd':pct>=80?'tf-wa':'tf-ok';
+        const alMsg=pct>=100?'🚨 Superado':pct>=80?'⚠️ Cerca':'';
+        const esCur=(mm===vM&&yy===vY);
+        mesesHtml+=`<div style="margin-top:6px">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--tx3)">
+            <span style="${esCur?'font-weight:600;color:var(--tx)':''}">${MS3[mm]} ${yy}</span>
+            <span style="${pct>=100?'color:var(--rd)':pct>=80?'color:var(--am)':''}">
+              ${fmt(totM)} / ${fmt(t.tope)} (${pct.toFixed(0)}%)
+              ${alMsg?'<strong> '+alMsg+'</strong>':''}
+            </span>
+          </div>
+          <div class="tope-bar"><div class="tope-fill ${cls}" style="width:${pct.toFixed(1)}%"></div></div>
+        </div>`;
+      }
+      topeHtml=`<div style="background:var(--bg);border-radius:var(--rs);padding:8px 10px;margin-top:6px">
+        <div style="font-size:11px;font-weight:600;color:var(--tx2);margin-bottom:2px">Tope: ${fmt(t.tope)}</div>
+        ${mesesHtml}
+      </div>`;
     }
     const periodosHtml=periodos.slice(-3).reverse().map(p=>{
       const vc=pf(p.vencStr),cc=pf(p.cierreStr);
