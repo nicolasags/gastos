@@ -376,11 +376,18 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);font-si
             <button class="tab" onclick="showTab('hist',this)">Historial</button>
           </div>
           <div class="tp on" id="tp-lista">
-            <div class="chips">
+            <!-- BUSCADOR -->
+            <div style="position:relative;margin-bottom:10px">
+              <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:14px;pointer-events:none">🔍</span>
+              <input type="text" id="search-input" placeholder="Buscar por descripción, categoría, tarjeta, nota..." oninput="renderLista()"
+                style="width:100%;padding:8px 10px 8px 32px;border:1px solid var(--b2);border-radius:var(--rs);background:var(--bg);color:var(--tx);font-size:13px;font-family:inherit;outline:none;transition:.13s">
+            </div>
+            <!-- FILTROS -->
+            <div class="chips" id="filter-chips">
               <button class="chip on" onclick="setF('todos',this)">Todos</button>
-              <button class="chip" onclick="setF('ef',this)">Efectivo</button>
-              <button class="chip" onclick="setF('db',this)">Débito</button>
-              <button class="chip" onclick="setF('cr',this)">Crédito</button>
+              <button class="chip" onclick="setF('ef',this)">💵 Efectivo</button>
+              <button class="chip" onclick="setF('db',this)">💳 Débito</button>
+              <button class="chip" onclick="setF('cr',this)">🔖 Crédito</button>
             </div>
             <div class="elist" id="elist"></div>
           </div>
@@ -964,7 +971,29 @@ function delGasto(id){
 }
 
 // FILTRO / TABS
-function setF(f,el){filtro=f;document.querySelectorAll('.chip').forEach(c=>c.className='chip');el.className='chip on';renderLista();}
+function buildFilterChips(){
+  const el=document.getElementById('filter-chips');
+  if(!el) return;
+  // Chips base
+  let html=`
+    <button class="chip${filtro==='todos'?' on':''}" onclick="setF('todos',this)">Todos</button>
+    <button class="chip${filtro==='ef'?' on':''}" onclick="setF('ef',this)">💵 Efectivo</button>
+    <button class="chip${filtro==='db'?' on':''}" onclick="setF('db',this)">💳 Débito</button>
+    <button class="chip${filtro==='cr'?' on':''}" onclick="setF('cr',this)">🔖 Crédito</button>`;
+  // Un chip por cada tarjeta
+  S.tarjetas.forEach(t=>{
+    const active=filtro===t.id?' on':'';
+    html+=`<button class="chip${active}" onclick="setF('${t.id}',this)">🔖 ${t.nombre}</button>`;
+  });
+  el.innerHTML=html;
+}
+
+function setF(f,el){
+  filtro=f;
+  document.querySelectorAll('#filter-chips .chip').forEach(c=>c.className='chip');
+  if(el) el.className='chip on';
+  renderLista();
+}
 function showTab(id,btn){
   document.querySelectorAll('.tp').forEach(p=>p.className='tp');
   document.querySelectorAll('.tab').forEach(b=>b.className='tab');
@@ -976,7 +1005,9 @@ function showTab(id,btn){
 function render(){
   const lbl=MS[vM]+' '+vY;
   document.getElementById('mlbl').textContent=lbl;document.getElementById('rperiod').textContent=lbl;
-  renderBalance();renderIngresos();renderAhorros();renderLista();renderTarjetas();
+  renderBalance();renderIngresos();renderAhorros();
+  buildFilterChips();
+  renderLista();renderTarjetas();
   const at=document.querySelector('.tp.on');
   if(at){const id=at.id.replace('tp-','');if(id==='cat')renderCat();if(id==='tarjtab')renderPorTarj();if(id==='hist')renderHist();if(id==='cuotas')renderTablaCuotas();}
 }
@@ -1009,42 +1040,76 @@ function renderBalance(){
 // LISTA
 function renderLista(){
   const el=document.getElementById('elist');
-  let items=gastosMes(vM,vY);
-  if(filtro==='ef')items=items.filter(g=>g.medio==='ef');
-  else if(filtro==='db')items=items.filter(g=>g.medio==='db');
-  else if(filtro==='cr')items=items.filter(g=>g.medio==='cr');
-  if(!items.length){el.innerHTML='<div class="empty"><div class="eico">📭</div><div class="etxt">Sin gastos este mes</div></div>';return;}
+  const searchEl=document.getElementById('search-input');
+  const query=(searchEl?searchEl.value.trim().toLowerCase():'');
+
+  // Con búsqueda activa: busca en TODOS los meses. Sin búsqueda: solo mes actual.
+  let items = query ? S.gastos.slice() : gastosMes(vM,vY);
+
+  // Filtro por medio o tarjeta específica
+  if(filtro==='ef')      items=items.filter(g=>g.medio==='ef');
+  else if(filtro==='db') items=items.filter(g=>g.medio==='db');
+  else if(filtro==='cr') items=items.filter(g=>g.medio==='cr');
+  else if(filtro!=='todos') items=items.filter(g=>g.tarjetaId===filtro);
+
+  // Búsqueda de texto libre
+  if(query){
+    items=items.filter(g=>{
+      const txt=[g.desc||'',g.cat||'',g.tarjetaNombre||'',g.nota||'',
+        fmt(g.monto),g.fecha||'',
+        g.medio==='ef'?'efectivo':g.medio==='db'?'debito':'credito'
+      ].join(' ').toLowerCase();
+      return txt.includes(query);
+    });
+  }
+
+  if(!items.length){
+    el.innerHTML='<div class="empty"><div class="eico">'+(query?'🔍':'📭')+'</div><div class="etxt">'+(query?'Sin resultados para &ldquo;'+query+'&rdquo;':'Sin gastos este mes')+'</div></div>';
+    return;
+  }
+
+  // Función para resaltar texto buscado
+  function hl(txt){
+    if(!query||!txt) return txt||'';
+    const re=new RegExp('('+query.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi');
+    return txt.replace(re,'<mark style="background:#FFF3CD;border-radius:2px;padding:0 1px">$1</mark>');
+  }
+
   const ml={ef:'Efectivo',db:'Débito',cr:'Crédito'};
   el.innerHTML=items.map(g=>{
     const ico=g.cat?g.cat.split(' ')[0]:'📦',catN=g.cat?g.cat.split(' ').slice(1).join(' '):'';
     const esCuota=g.grupoId&&g.totalCuotas>1;
+    const fechaDisp=pd(g.fecha).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'2-digit'});
     let vtag='';
     if(g.medio==='cr'){
       const t=S.tarjetas.find(x=>x.id===g.tarjetaId);
       if(t){
-        // Usar vencStr guardado en el gasto, o recalcular
-        let vencStr = g.vencStr;
-        if(!vencStr){
-          const k=g.anioPago+'-'+g.mesPago;
-          const ov=(t.fechasMes||{})[k];
-          const vd=ov?ov.venc:t.venc;
-          vencStr=g.anioPago+'-'+String(g.mesPago+1).padStart(2,'0')+'-'+String(vd).padStart(2,'0');
-        }
+        let vencStr=g.vencStr;
+        if(!vencStr){const k=g.anioPago+'-'+g.mesPago;const ov=(t.fechasMes||{})[k];const vd=ov?ov.venc:t.venc;vencStr=g.anioPago+'-'+String(g.mesPago+1).padStart(2,'0')+'-'+String(vd).padStart(2,'0');}
         const vp=pf(vencStr);
-        const vs=`${String(vp.getDate()).padStart(2,'0')}/${String(vp.getMonth()+1).padStart(2,'0')}/${vp.getFullYear()}`;
+        const vs=String(vp.getDate()).padStart(2,'0')+'/'+String(vp.getMonth()+1).padStart(2,'0')+'/'+vp.getFullYear();
         const dias=Math.round((vp-new Date())/86400000);
-        vtag=`<span class="vtag ${dias<=20?'vok':'vwa'}">Vence ${vs}</span>`;
+        vtag='<span class="vtag '+(dias<=20?'vok':'vwa')+'">Vence '+vs+'</span>';
       }
     }
-    return`<div class="ei">
-      <div class="edot d${g.medio}"></div>
-      <div class="ebo"><div class="edsc">${ico} ${g.desc}</div>
-        <div class="emeta">${catN} · ${pd(g.fecha).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'2-digit'})}${esCuota?` · Cuota ${g.nCuota}/${g.totalCuotas}`:''}${g.tarjetaNombre?' · '+g.tarjetaNombre:''}${g.nota?' · '+g.nota:''}</div></div>
-      <div class="eri"><div class="eamt" style="${g.monto<0?'color:var(--gn)':''}">${fmt(g.monto)}</div>
-        ${esCuota?`<div class="etot">de ${fmt(g.montoTotal)}</div>`:''}
-        <div style="display:flex;gap:3px;justify-content:flex-end;flex-wrap:wrap;margin-top:2px"><span class="ebdg b${g.medio}">${ml[g.medio]}</span>${g.monto<0?'<span class="ebdg" style="background:var(--gn-l);color:var(--gn)">Bonif.</span>':''}${vtag}</div></div>
-      <button class="ebtn" onclick="abrirEditGasto('${g.id}')">✏️</button>
-      <button class="dbtn" onclick="delGasto('${g.id}')">🗑</button></div>`;
+    return '<div class="ei">'+
+      '<div class="edot d'+g.medio+'"></div>'+
+      '<div class="ebo">'+
+        '<div class="edsc">'+ico+' '+hl(g.desc)+'</div>'+
+        '<div class="emeta">'+hl(catN)+' · '+fechaDisp+(esCuota?' · Cuota '+g.nCuota+'/'+g.totalCuotas:'')+(g.tarjetaNombre?' · '+hl(g.tarjetaNombre):'')+(g.nota?' · '+hl(g.nota):'')+'</div>'+
+      '</div>'+
+      '<div class="eri">'+
+        '<div class="eamt" style="'+(g.monto<0?'color:var(--gn)':'')+'">'+fmt(g.monto)+'</div>'+
+        (esCuota?'<div class="etot">de '+fmt(g.montoTotal)+'</div>':'')+
+        '<div style="display:flex;gap:3px;justify-content:flex-end;flex-wrap:wrap;margin-top:2px">'+
+          '<span class="ebdg b'+g.medio+'">'+ml[g.medio]+'</span>'+
+          (g.monto<0?'<span class="ebdg" style="background:var(--gn-l);color:var(--gn)">Bonif.</span>':'')+
+          vtag+
+        '</div>'+
+      '</div>'+
+      '<button class="ebtn" onclick="abrirEditGasto(''+g.id+'')">✏️</button>'+
+      '<button class="dbtn" onclick="delGasto(''+g.id+'')">🗑</button>'+
+    '</div>';
   }).join('');
 }
 
