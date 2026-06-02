@@ -1436,12 +1436,20 @@ function toast(m){const e=document.getElementById('toast');e.textContent=m;e.cla
   calState['nt-venc-cal']={y:n.getFullYear(),m:n.getMonth()};
   document.getElementById('f-monto').addEventListener('input',()=>{if(medio==='cr')calcPrev();});
   loadXLSX(()=>{});
-  // Cargar MSAL dinámicamente — nunca bloquea el resto
-  const msalScript=document.createElement('script');
-  msalScript.src='https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js';
-  msalScript.onload=()=>odInit();
-  msalScript.onerror=()=>console.warn('MSAL no disponible — OneDrive deshabilitado');
-  document.head.appendChild(msalScript);
+  // Cargar MSAL dinámicamente con CDN principal + fallback
+  function loadMSAL(urls, idx){
+    if(idx>=urls.length){ console.warn('MSAL no disponible'); odSetStatus('⚠️ MSAL no disponible','var(--rd)'); return; }
+    const s=document.createElement('script');
+    s.src=urls[idx];
+    s.onload=()=>{ console.log('MSAL cargado desde',urls[idx]); odInit(); };
+    s.onerror=()=>{ console.warn('Falló CDN',urls[idx],'— probando siguiente...'); loadMSAL(urls,idx+1); };
+    document.head.appendChild(s);
+  }
+  loadMSAL([
+    'https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js',
+    'https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js',
+    'https://unpkg.com/@azure/msal-browser@2.38.3/lib/msal-browser.min.js'
+  ], 0);
   fillTjSel();render();
 })();
 </script>
